@@ -201,8 +201,8 @@ impl VikunjaClient {
 
     // -- tasks -------------------------------------------------------------
 
-    pub async fn create_task(&self, task: &CreateTask<'_>) -> Result<Task> {
-        self.put_json("/tasks", task).await
+    pub async fn create_task(&self, project_id: i64, task: &CreateTask<'_>) -> Result<Task> {
+        self.put_json(&format!("/projects/{project_id}/tasks"), task).await
     }
 
     pub async fn list_tasks(

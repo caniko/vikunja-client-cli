@@ -98,7 +98,7 @@ enum TaskCmd {
     Create {
         title: String,
         #[arg(long)]
-        project_id: Option<i64>,
+        project_id: i64,
         #[arg(long)]
         description: Option<String>,
         #[arg(long)]
@@ -151,10 +151,6 @@ enum TaskCmd {
         remove_due_date: bool,
         #[arg(long)]
         percent_done: Option<f64>,
-        #[arg(long)]
-        label_id: Vec<i64>,
-        #[arg(long)]
-        assignee_id: Vec<i64>,
     },
 
     /// Delete a task.
@@ -430,27 +426,28 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
             assignee_id,
         } => {
             let task = client
-                .create_task(&CreateTask {
-                    title: &title,
-                    description: description.as_deref(),
+                .create_task(
                     project_id,
-                    priority,
-                    due_date: due_date.as_deref(),
-                    start_date: start_date.as_deref(),
-                    end_date: end_date.as_deref(),
-                    percent_done,
-                    labels: if label_id.is_empty() {
-                        None
-                    } else {
-                        Some(label_id)
+                    &CreateTask {
+                        title: &title,
+                        description: description.as_deref(),
+                        priority,
+                        due_date: due_date.as_deref(),
+                        start_date: start_date.as_deref(),
+                        end_date: end_date.as_deref(),
+                        percent_done,
                     },
-                    assignees: if assignee_id.is_empty() {
-                        None
-                    } else {
-                        Some(assignee_id)
-                    },
-                })
+                )
                 .await?;
+            let task_id = task.id;
+            if !label_id.is_empty() {
+                client.add_task_labels(task_id, &label_id).await?;
+            }
+            for uid in &assignee_id {
+                client.add_task_assignee(task_id, *uid).await?;
+            }
+            // Re-fetch to get populated labels/assignees
+            let task = client.get_task(task_id).await?;
             print_json(&CliOutput::new(task))?;
         }
         TaskCmd::List {
@@ -487,8 +484,6 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
             due_date,
             remove_due_date,
             percent_done,
-            label_id,
-            assignee_id,
         } => {
             let due = match (due_date, remove_due_date) {
                 (Some(d), _) => Some(d),
@@ -505,16 +500,6 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
                         priority,
                         due_date: due.as_deref(),
                         percent_done,
-                        labels: if label_id.is_empty() {
-                            None
-                        } else {
-                            Some(label_id)
-                        },
-                        assignees: if assignee_id.is_empty() {
-                            None
-                        } else {
-                            Some(assignee_id)
-                        },
                     },
                 )
                 .await?;

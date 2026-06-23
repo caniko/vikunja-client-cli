@@ -1,5 +1,13 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tabled::Tabled;
+
+/// Deserialize `null` or missing as the default (e.g. empty Vec).
+fn de_null_default<'de, T: serde::Deserialize<'de> + Default, D: Deserializer<'de>>(
+    d: D,
+) -> Result<T, D::Error> {
+    let opt = Option::<T>::deserialize(d)?;
+    Ok(opt.unwrap_or_default())
+}
 
 // ---------------------------------------------------------------------------
 // Pagination
@@ -60,7 +68,7 @@ pub struct Label {
 pub struct Task {
     pub id: i64,
     pub title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_null_default")]
     pub description: String,
     #[serde(default)]
     pub done: bool,
@@ -69,13 +77,13 @@ pub struct Task {
     #[serde(default)]
     pub priority: i64,
     pub project_id: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_null_default")]
     pub labels: Vec<Label>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_null_default")]
     pub assignees: Vec<User>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_null_default")]
     pub created: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_null_default")]
     pub updated: String,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
@@ -83,7 +91,7 @@ pub struct Task {
     pub percent_done: f64,
     pub position: Option<f64>,
     pub created_by: Option<User>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_null_default")]
     pub identifier: String,
     #[serde(default)]
     pub index: i64,
@@ -98,8 +106,6 @@ pub struct CreateTask<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub project_id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due_date: Option<&'a str>,
@@ -109,10 +115,6 @@ pub struct CreateTask<'a> {
     pub end_date: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percent_done: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<i64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub assignees: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -129,10 +131,6 @@ pub struct UpdateTask<'a> {
     pub due_date: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percent_done: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<i64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub assignees: Option<Vec<i64>>,
 }
 
 // ---------------------------------------------------------------------------
