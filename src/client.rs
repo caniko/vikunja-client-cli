@@ -8,6 +8,10 @@ use reqwest::{
 
 use crate::types::*;
 
+const PAGINATION_TOTAL_PAGES: &str = "x-pagination-total-pages";
+const PAGINATION_RESULT_COUNT: &str = "x-pagination-result-count";
+const PAGINATION_CURRENT_PAGE: &str = "x-pagination-current-page";
+
 pub struct VikunjaClient {
     http: Client,
     api: String,
@@ -17,6 +21,7 @@ pub struct VikunjaClient {
 impl VikunjaClient {
     pub fn new(base_url: &str, token: &str, accept_invalid_certs: bool) -> Result<Self> {
         let base = base_url.trim_end_matches('/');
+        let base = base.strip_suffix("/api/v1").unwrap_or(base);
         let api = format!("{base}/api/v1");
         let http = Client::builder()
             .danger_accept_invalid_certs(accept_invalid_certs)
@@ -35,10 +40,7 @@ impl VikunjaClient {
 
     fn headers(&self) -> reqwest::header::HeaderMap {
         let mut h = reqwest::header::HeaderMap::new();
-        h.insert(
-            AUTHORIZATION,
-            self.auth.parse().unwrap(),
-        );
+        h.insert(AUTHORIZATION, self.auth.parse().unwrap());
         h
     }
 
@@ -54,6 +56,23 @@ impl VikunjaClient {
         resp.json()
             .await
             .with_context(|| format!("decoding GET {path} response"))
+    }
+
+    async fn get_array<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<Vec<T>> {
+        let resp = self
+            .http
+            .get(format!("{}{path}", self.api))
+            .headers(self.headers())
+            .send()
+            .await
+            .with_context(|| format!("GET {path}"))?;
+        let resp = ensure_success(resp).await?;
+        let body = resp.text().await?;
+        if body == "null" || body.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        serde_json::from_str(&body)
+            .with_context(|| format!("decoding GET {path} response (expected array)"))
     }
 
     async fn put_json<T: serde::de::DeserializeOwned, B: serde::Serialize>(
@@ -106,6 +125,8 @@ impl VikunjaClient {
         Ok(())
     }
 
+    /// Fetch a paginated list endpoint.
+    /// Vikunja 2.3 returns plain arrays with pagination in response headers.
     async fn paginated<T: serde::de::DeserializeOwned>(
         &self,
         path: &str,
@@ -121,7 +142,47 @@ impl VikunjaClient {
             let sep2 = if page.is_some() { '&' } else { sep };
             p.push_str(&format!("{sep2}per_page={per}"));
         }
-        self.get_json(&p).await
+
+        let resp = self
+            .http
+            .get(format!("{}{}", self.api, p))
+            .headers(self.headers())
+            .send()
+            .await
+            .with_context(|| format!("GET {path}"))?;
+        let page_num = resp
+            .headers()
+            .get(PAGINATION_CURRENT_PAGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
+        let total_pages = resp
+            .headers()
+            .get(PAGINATION_TOTAL_PAGES)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
+        let total_items = resp
+            .headers()
+            .get(PAGINATION_RESULT_COUNT)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let resp = ensure_success(resp).await?;
+        let body = resp.text().await?;
+        let result: Vec<T> = if body == "null" || body.trim().is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(&body)
+                .with_context(|| format!("decoding GET {path} response (expected array)"))?
+        };
+
+        Ok(Paginated {
+            result,
+            total_pages,
+            total_items,
+            page: page_num,
+        })
     }
 
     // -- health ------------------------------------------------------------
@@ -153,7 +214,7 @@ impl VikunjaClient {
     ) -> Result<Paginated<Task>> {
         let path = match project_id {
             Some(pid) => format!("/projects/{pid}/tasks"),
-            None => "/tasks/all".into(),
+            None => "/tasks".into(),
         };
         let mut p = path;
         let mut have_q = false;
@@ -170,7 +231,7 @@ impl VikunjaClient {
             let sep = if have_q { '&' } else { '?' };
             p.push_str(&format!("{sep}filter={}", urlencode(f)));
         }
-        self.get_json(&p).await
+        self.paginated(&p, None, None).await
     }
 
     pub async fn get_task(&self, id: i64) -> Result<Task> {
@@ -185,6 +246,32 @@ impl VikunjaClient {
         self.delete(&format!("/tasks/{id}")).await
     }
 
+    pub async fn add_task_labels(&self, task_id: i64, label_ids: &[i64]) -> Result<()> {
+        for lid in label_ids {
+            let body = serde_json::json!({"label_id": lid});
+            self.put_json::<serde_json::Value, _>(&format!("/tasks/{task_id}/labels"), &body)
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn remove_task_label(&self, task_id: i64, label_id: i64) -> Result<()> {
+        self.delete(&format!("/tasks/{task_id}/labels/{label_id}"))
+            .await
+    }
+
+    pub async fn add_task_assignee(&self, task_id: i64, user_id: i64) -> Result<()> {
+        let body = serde_json::json!({"user_id": user_id});
+        self.put_json::<serde_json::Value, _>(&format!("/tasks/{task_id}/assignees"), &body)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn remove_task_assignee(&self, task_id: i64, user_id: i64) -> Result<()> {
+        self.delete(&format!("/tasks/{task_id}/assignees/{user_id}"))
+            .await
+    }
+
     // -- projects ----------------------------------------------------------
 
     pub async fn create_project(&self, project: &CreateProject<'_>) -> Result<Project> {
@@ -193,15 +280,10 @@ impl VikunjaClient {
 
     pub async fn list_projects(
         &self,
-        namespace_id: Option<i64>,
         page: Option<i64>,
         per_page: Option<i64>,
     ) -> Result<Paginated<Project>> {
-        let path = match namespace_id {
-            Some(nid) => format!("/namespaces/{nid}/projects"),
-            None => "/projects".into(),
-        };
-        self.paginated(&path, page, per_page).await
+        self.paginated("/projects", page, per_page).await
     }
 
     pub async fn get_project(&self, id: i64) -> Result<Project> {
@@ -216,6 +298,18 @@ impl VikunjaClient {
         self.delete(&format!("/projects/{id}")).await
     }
 
+    pub async fn add_project_team(&self, project_id: i64, team_id: i64) -> Result<()> {
+        let body = serde_json::json!({"team_id": team_id});
+        self.put_json::<serde_json::Value, _>(&format!("/projects/{project_id}/teams"), &body)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_project_teams(&self, project_id: i64) -> Result<Vec<ProjectTeam>> {
+        self.get_array(&format!("/projects/{project_id}/teams"))
+            .await
+    }
+
     // -- labels ------------------------------------------------------------
 
     pub async fn create_label(&self, title: &str, color: Option<&str>) -> Result<Label> {
@@ -225,10 +319,19 @@ impl VikunjaClient {
 
     pub async fn list_labels(
         &self,
+        search: Option<&str>,
         page: Option<i64>,
         per_page: Option<i64>,
     ) -> Result<Paginated<Label>> {
-        self.paginated("/labels", page, per_page).await
+        let mut path = "/labels".to_string();
+        if let Some(s) = search {
+            path.push_str(&format!("?s={}", urlencode(s)));
+        }
+        self.paginated(&path, page, per_page).await
+    }
+
+    pub async fn get_label(&self, id: i64) -> Result<Label> {
+        self.get_json(&format!("/labels/{id}")).await
     }
 
     pub async fn update_label(
@@ -251,7 +354,7 @@ impl VikunjaClient {
         self.delete(&format!("/labels/{id}")).await
     }
 
-    // -- teams (read-only) -------------------------------------------------
+    // -- teams -------------------------------------------------------------
 
     pub async fn list_teams(&self) -> Result<Vec<Team>> {
         let resp = self
@@ -283,14 +386,14 @@ impl VikunjaClient {
         self.paginated("/users", page, per_page).await
     }
 
-    // -- namespaces --------------------------------------------------------
+    // -- namespaces (removed in Vikunja 2.3) --------------------------------
 
     pub async fn list_namespaces(
         &self,
-        page: Option<i64>,
-        per_page: Option<i64>,
+        _page: Option<i64>,
+        _per_page: Option<i64>,
     ) -> Result<Paginated<Namespace>> {
-        self.paginated("/namespaces", page, per_page).await
+        anyhow::bail!("namespaces were removed in Vikunja 2.3 — work directly with projects instead")
     }
 }
 

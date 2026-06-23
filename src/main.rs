@@ -81,7 +81,7 @@ enum Commands {
         cmd: UserCmd,
     },
 
-    /// Manage Vikunja namespaces.
+    /// Manage Vikunja namespaces (deprecated in 2.3).
     Namespace {
         #[command(subcommand)]
         cmd: NamespaceCmd,
@@ -111,6 +111,10 @@ enum TaskCmd {
         end_date: Option<String>,
         #[arg(long)]
         percent_done: Option<f64>,
+        #[arg(long)]
+        label_id: Vec<i64>,
+        #[arg(long)]
+        assignee_id: Vec<i64>,
     },
 
     /// List tasks.
@@ -147,11 +151,55 @@ enum TaskCmd {
         remove_due_date: bool,
         #[arg(long)]
         percent_done: Option<f64>,
+        #[arg(long)]
+        label_id: Vec<i64>,
+        #[arg(long)]
+        assignee_id: Vec<i64>,
     },
 
     /// Delete a task.
     Delete {
         id: i64,
+    },
+
+    /// Manage task labels.
+    Label {
+        #[command(subcommand)]
+        cmd: TaskLabelCmd,
+    },
+
+    /// Manage task assignees.
+    Assignee {
+        #[command(subcommand)]
+        cmd: TaskAssigneeCmd,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum TaskLabelCmd {
+    /// Add a label to a task.
+    Add {
+        task_id: i64,
+        label_id: i64,
+    },
+    /// Remove a label from a task.
+    Remove {
+        task_id: i64,
+        label_id: i64,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum TaskAssigneeCmd {
+    /// Add an assignee to a task.
+    Add {
+        task_id: i64,
+        user_id: i64,
+    },
+    /// Remove an assignee from a task.
+    Remove {
+        task_id: i64,
+        user_id: i64,
     },
 }
 
@@ -167,15 +215,13 @@ enum ProjectCmd {
         #[arg(long)]
         description: Option<String>,
         #[arg(long)]
-        namespace_id: Option<i64>,
-        #[arg(long)]
         parent_project_id: Option<i64>,
+        #[arg(long)]
+        hex_color: Option<String>,
     },
 
     /// List projects.
     List {
-        #[arg(long)]
-        namespace_id: Option<i64>,
         #[arg(long)]
         page: Option<i64>,
         #[arg(long)]
@@ -215,14 +261,23 @@ enum LabelCmd {
         title: String,
         #[arg(long)]
         color: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
     },
 
     /// List labels.
     List {
         #[arg(long)]
+        search: Option<String>,
+        #[arg(long)]
         page: Option<i64>,
         #[arg(long)]
         per_page: Option<i64>,
+    },
+
+    /// Get a single label by ID.
+    Get {
+        id: i64,
     },
 
     /// Update a label.
@@ -271,18 +326,13 @@ enum UserCmd {
 }
 
 // ---------------------------------------------------------------------------
-// Namespace subcommands
+// Namespace subcommands (deprecated)
 // ---------------------------------------------------------------------------
 
 #[derive(Subcommand, Debug)]
 enum NamespaceCmd {
-    /// List namespaces.
-    List {
-        #[arg(long)]
-        page: Option<i64>,
-        #[arg(long)]
-        per_page: Option<i64>,
-    },
+    /// List namespaces (removed in Vikunja 2.3).
+    List,
 }
 
 // ---------------------------------------------------------------------------
@@ -376,6 +426,8 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
             start_date,
             end_date,
             percent_done,
+            label_id,
+            assignee_id,
         } => {
             let task = client
                 .create_task(&CreateTask {
@@ -387,6 +439,16 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
                     start_date: start_date.as_deref(),
                     end_date: end_date.as_deref(),
                     percent_done,
+                    labels: if label_id.is_empty() {
+                        None
+                    } else {
+                        Some(label_id)
+                    },
+                    assignees: if assignee_id.is_empty() {
+                        None
+                    } else {
+                        Some(assignee_id)
+                    },
                 })
                 .await?;
             print_json(&CliOutput::new(task))?;
@@ -425,6 +487,8 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
             due_date,
             remove_due_date,
             percent_done,
+            label_id,
+            assignee_id,
         } => {
             let due = match (due_date, remove_due_date) {
                 (Some(d), _) => Some(d),
@@ -441,6 +505,16 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
                         priority,
                         due_date: due.as_deref(),
                         percent_done,
+                        labels: if label_id.is_empty() {
+                            None
+                        } else {
+                            Some(label_id)
+                        },
+                        assignees: if assignee_id.is_empty() {
+                            None
+                        } else {
+                            Some(assignee_id)
+                        },
                     },
                 )
                 .await?;
@@ -449,6 +523,40 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
         TaskCmd::Delete { id } => {
             client.delete_task(id).await?;
             let msg = serde_json::json!({"deleted": true, "id": id});
+            print_json(&CliOutput::new(msg))?;
+        }
+        TaskCmd::Label { cmd } => run_task_label(cmd, client, out).await?,
+        TaskCmd::Assignee { cmd } => run_task_assignee(cmd, client, out).await?,
+    }
+    Ok(())
+}
+
+async fn run_task_label(cmd: TaskLabelCmd, client: &VikunjaClient, _out: &OutputFormat) -> Result<()> {
+    match cmd {
+        TaskLabelCmd::Add { task_id, label_id } => {
+            client.add_task_labels(task_id, &[label_id]).await?;
+            let msg = serde_json::json!({"added": true, "task_id": task_id, "label_id": label_id});
+            print_json(&CliOutput::new(msg))?;
+        }
+        TaskLabelCmd::Remove { task_id, label_id } => {
+            client.remove_task_label(task_id, label_id).await?;
+            let msg = serde_json::json!({"removed": true, "task_id": task_id, "label_id": label_id});
+            print_json(&CliOutput::new(msg))?;
+        }
+    }
+    Ok(())
+}
+
+async fn run_task_assignee(cmd: TaskAssigneeCmd, client: &VikunjaClient, _out: &OutputFormat) -> Result<()> {
+    match cmd {
+        TaskAssigneeCmd::Add { task_id, user_id } => {
+            client.add_task_assignee(task_id, user_id).await?;
+            let msg = serde_json::json!({"added": true, "task_id": task_id, "user_id": user_id});
+            print_json(&CliOutput::new(msg))?;
+        }
+        TaskAssigneeCmd::Remove { task_id, user_id } => {
+            client.remove_task_assignee(task_id, user_id).await?;
+            let msg = serde_json::json!({"removed": true, "task_id": task_id, "user_id": user_id});
             print_json(&CliOutput::new(msg))?;
         }
     }
@@ -462,25 +570,24 @@ async fn run_project(cmd: ProjectCmd, client: &VikunjaClient, out: &OutputFormat
         ProjectCmd::Create {
             title,
             description,
-            namespace_id,
             parent_project_id,
+            hex_color,
         } => {
             let project = client
                 .create_project(&CreateProject {
                     title: &title,
                     description: description.as_deref(),
-                    namespace_id,
                     parent_project_id,
+                    hex_color: hex_color.as_deref(),
                 })
                 .await?;
             print_json(&CliOutput::new(project))?;
         }
         ProjectCmd::List {
-            namespace_id,
             page,
             per_page,
         } => {
-            let page_data = client.list_projects(namespace_id, page, per_page).await?;
+            let page_data = client.list_projects(page, per_page).await?;
             let meta = PageMeta {
                 page: page_data.page,
                 total_pages: page_data.total_pages,
@@ -528,12 +635,20 @@ async fn run_project(cmd: ProjectCmd, client: &VikunjaClient, out: &OutputFormat
 
 async fn run_label(cmd: LabelCmd, client: &VikunjaClient, out: &OutputFormat) -> Result<()> {
     match cmd {
-        LabelCmd::Create { title, color } => {
+        LabelCmd::Create {
+            title,
+            color,
+            description: _description,
+        } => {
             let label = client.create_label(&title, color.as_deref()).await?;
             print_json(&CliOutput::new(label))?;
         }
-        LabelCmd::List { page, per_page } => {
-            let page_data = client.list_labels(page, per_page).await?;
+        LabelCmd::List {
+            search,
+            page,
+            per_page,
+        } => {
+            let page_data = client.list_labels(search.as_deref(), page, per_page).await?;
             let meta = PageMeta {
                 page: page_data.page,
                 total_pages: page_data.total_pages,
@@ -545,6 +660,10 @@ async fn run_label(cmd: LabelCmd, client: &VikunjaClient, out: &OutputFormat) ->
                 println!("Labels (page {}/{}):", page_data.page, page_data.total_pages);
                 print_json_items(&page_data.result)?;
             }
+        }
+        LabelCmd::Get { id } => {
+            let label = client.get_label(id).await?;
+            print_json(&CliOutput::new(label))?;
         }
         LabelCmd::Update { id, title, color } => {
             let label = client
@@ -619,7 +738,7 @@ async fn run_user(cmd: UserCmd, client: &VikunjaClient, out: &OutputFormat) -> R
     Ok(())
 }
 
-// -- Namespaces -------------------------------------------------------------
+// -- Namespaces (deprecated) -----------------------------------------------
 
 async fn run_namespace(
     cmd: NamespaceCmd,
@@ -627,18 +746,36 @@ async fn run_namespace(
     out: &OutputFormat,
 ) -> Result<()> {
     match cmd {
-        NamespaceCmd::List { page, per_page } => {
-            let page_data = client.list_namespaces(page, per_page).await?;
-            let meta = PageMeta {
-                page: page_data.page,
-                total_pages: page_data.total_pages,
-                total_items: page_data.total_items,
-            };
-            if matches!(out, OutputFormat::Json) {
-                print_json(&CliOutputMeta::new(page_data.result, meta))?;
-            } else {
-                println!("Namespaces (page {}/{}):", page_data.page, page_data.total_pages);
-                print_json_items(&page_data.result)?;
+        NamespaceCmd::List => {
+            let result = client.list_namespaces(None, None).await;
+            match result {
+                Ok(page_data) => {
+                    let meta = PageMeta {
+                        page: page_data.page,
+                        total_pages: page_data.total_pages,
+                        total_items: page_data.total_items,
+                    };
+                    if matches!(out, OutputFormat::Json) {
+                        print_json(&CliOutputMeta::new(page_data.result, meta))?;
+                    } else {
+                        println!(
+                            "Namespaces (page {}/{}):",
+                            page_data.page, page_data.total_pages
+                        );
+                        print_json_items(&page_data.result)?;
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("namespaces are not available in Vikunja 2.3: {e}");
+                    if matches!(out, OutputFormat::Json) {
+                        print_json(&CliOutput::new(
+                            serde_json::json!({"error": msg, "hint": "use project list instead"}),
+                        ))?;
+                    } else {
+                        println!("{msg}");
+                        println!("  -> use `vkc project list` instead");
+                    }
+                }
             }
         }
     }

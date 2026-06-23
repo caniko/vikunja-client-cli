@@ -83,6 +83,13 @@ pub struct Task {
     pub percent_done: f64,
     pub position: Option<f64>,
     pub created_by: Option<User>,
+    #[serde(default)]
+    pub identifier: String,
+    #[serde(default)]
+    pub index: i64,
+    pub bucket_id: Option<i64>,
+    #[serde(default)]
+    pub is_favorite: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -102,6 +109,10 @@ pub struct CreateTask<'a> {
     pub end_date: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percent_done: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<i64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignees: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -118,6 +129,10 @@ pub struct UpdateTask<'a> {
     pub due_date: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percent_done: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<i64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignees: Option<Vec<i64>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -132,8 +147,6 @@ pub struct Project {
     pub description: String,
     #[serde(default)]
     pub is_archived: bool,
-    #[serde(default)]
-    pub namespace_id: i64,
     pub parent_project_id: Option<i64>,
     #[serde(default)]
     pub hex_color: Option<String>,
@@ -152,9 +165,9 @@ pub struct CreateProject<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub namespace_id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_project_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hex_color: Option<&'a str>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -165,6 +178,17 @@ pub struct UpdateProject<'a> {
     pub description: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_archived: Option<bool>,
+}
+
+// ---------------------------------------------------------------------------
+// ProjectTeam
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectTeam {
+    pub id: i64,
+    pub name: String,
+    pub permission: Option<i64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +222,7 @@ pub struct TeamDetail {
 }
 
 // ---------------------------------------------------------------------------
-// Namespace
+// Namespace (deprecated in Vikunja 2.3 — kept for compatibility)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
