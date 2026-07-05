@@ -1,5 +1,6 @@
 mod auth;
 mod client;
+mod config;
 mod errors;
 mod output;
 mod types;
@@ -8,11 +9,13 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::ffi::OsString;
 
 use client::VikunjaClient;
+use config::CliConfig;
 use errors::CliError;
 use output::{
-    print_json, print_json_items, print_table, CliOutput, CliOutputMeta, OutputFormat, PageMeta,
+    CliOutput, CliOutputMeta, OutputFormat, PageMeta, print_json, print_json_items, print_table,
 };
 use types::*;
 
@@ -24,8 +27,11 @@ use types::*;
     max_term_width = 120
 )]
 struct Cli {
+    #[arg(long, env = "VKC_CONFIG")]
+    config: Option<PathBuf>,
+
     #[arg(long, env = "VIKUNJA_URL")]
-    url: String,
+    url: Option<String>,
 
     #[arg(long, env = "VIKUNJA_TOKEN", hide_env_values = true)]
     token: Option<String>,
@@ -33,10 +39,10 @@ struct Cli {
     #[arg(long)]
     token_file: Option<PathBuf>,
 
-    #[arg(long, env = "VKC_OUTPUT", default_value = "json")]
-    output: OutputFormat,
+    #[arg(long, env = "VKC_OUTPUT")]
+    output: Option<OutputFormat>,
 
-    #[arg(long)]
+    #[arg(long, action = clap::ArgAction::SetTrue)]
     accept_invalid_certs: bool,
 
     #[command(subcommand)]
@@ -130,9 +136,7 @@ enum TaskCmd {
     },
 
     /// Get a single task by ID.
-    Get {
-        id: i64,
-    },
+    Get { id: i64 },
 
     /// Update a task.
     Update {
@@ -154,9 +158,7 @@ enum TaskCmd {
     },
 
     /// Delete a task.
-    Delete {
-        id: i64,
-    },
+    Delete { id: i64 },
 
     /// Manage task labels.
     Label {
@@ -174,29 +176,17 @@ enum TaskCmd {
 #[derive(Subcommand, Debug)]
 enum TaskLabelCmd {
     /// Add a label to a task.
-    Add {
-        task_id: i64,
-        label_id: i64,
-    },
+    Add { task_id: i64, label_id: i64 },
     /// Remove a label from a task.
-    Remove {
-        task_id: i64,
-        label_id: i64,
-    },
+    Remove { task_id: i64, label_id: i64 },
 }
 
 #[derive(Subcommand, Debug)]
 enum TaskAssigneeCmd {
     /// Add an assignee to a task.
-    Add {
-        task_id: i64,
-        user_id: i64,
-    },
+    Add { task_id: i64, user_id: i64 },
     /// Remove an assignee from a task.
-    Remove {
-        task_id: i64,
-        user_id: i64,
-    },
+    Remove { task_id: i64, user_id: i64 },
 }
 
 // ---------------------------------------------------------------------------
@@ -225,9 +215,7 @@ enum ProjectCmd {
     },
 
     /// Get a single project by ID.
-    Get {
-        id: i64,
-    },
+    Get { id: i64 },
 
     /// Update a project.
     Update {
@@ -241,9 +229,7 @@ enum ProjectCmd {
     },
 
     /// Delete a project.
-    Delete {
-        id: i64,
-    },
+    Delete { id: i64 },
 }
 
 // ---------------------------------------------------------------------------
@@ -272,9 +258,7 @@ enum LabelCmd {
     },
 
     /// Get a single label by ID.
-    Get {
-        id: i64,
-    },
+    Get { id: i64 },
 
     /// Update a label.
     Update {
@@ -286,9 +270,7 @@ enum LabelCmd {
     },
 
     /// Delete a label.
-    Delete {
-        id: i64,
-    },
+    Delete { id: i64 },
 }
 
 // ---------------------------------------------------------------------------
@@ -301,9 +283,7 @@ enum TeamCmd {
     List,
 
     /// Get a single team with members.
-    Get {
-        id: i64,
-    },
+    Get { id: i64 },
 }
 
 // ---------------------------------------------------------------------------
@@ -338,18 +318,32 @@ enum NamespaceCmd {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    let cfg = match config::resolve(CliConfig {
+        config_path: cli.config,
+        url: cli.url,
+        token: cli.token,
+        token_file: cli.token_file,
+        output: cli.output,
+        accept_invalid_certs: accept_invalid_certs_arg(
+            cli.accept_invalid_certs,
+            std::env::args_os(),
+        ),
+    }) {
+        Ok(cfg) => cfg,
+        Err(e) => CliError::new(0, format!("{e:#}")).exit(),
+    };
 
-    let token = match auth::resolve_token(cli.token_file.as_deref(), cli.token.as_deref()) {
+    let token = match auth::resolve_token(cfg.token_file.as_deref(), cfg.token.as_deref()) {
         Ok(t) => t,
         Err(e) => CliError::new(0, format!("{e}")).exit(),
     };
 
-    let client = match VikunjaClient::new(&cli.url, &token, cli.accept_invalid_certs) {
+    let client = match VikunjaClient::new(&cfg.url, &token, cfg.accept_invalid_certs) {
         Ok(c) => c,
         Err(e) => CliError::new(0, format!("{e}")).exit(),
     };
 
-    let out = &cli.output;
+    let out = &cfg.output;
 
     if let Err(e) = run(cli.command, &client, out).await {
         CliError::new(status_from_error(&e), format!("{e:#}")).exit();
@@ -382,6 +376,15 @@ fn status_from_error(err: &anyhow::Error) -> u16 {
     } else {
         500
     }
+}
+
+fn accept_invalid_certs_arg<I>(parsed: bool, args: I) -> Option<bool>
+where
+    I: IntoIterator<Item = OsString>,
+{
+    args.into_iter()
+        .any(|arg| arg == "--accept-invalid-certs")
+        .then_some(parsed)
 }
 
 // ---------------------------------------------------------------------------
@@ -516,7 +519,11 @@ async fn run_task(cmd: TaskCmd, client: &VikunjaClient, out: &OutputFormat) -> R
     Ok(())
 }
 
-async fn run_task_label(cmd: TaskLabelCmd, client: &VikunjaClient, _out: &OutputFormat) -> Result<()> {
+async fn run_task_label(
+    cmd: TaskLabelCmd,
+    client: &VikunjaClient,
+    _out: &OutputFormat,
+) -> Result<()> {
     match cmd {
         TaskLabelCmd::Add { task_id, label_id } => {
             client.add_task_labels(task_id, &[label_id]).await?;
@@ -525,14 +532,19 @@ async fn run_task_label(cmd: TaskLabelCmd, client: &VikunjaClient, _out: &Output
         }
         TaskLabelCmd::Remove { task_id, label_id } => {
             client.remove_task_label(task_id, label_id).await?;
-            let msg = serde_json::json!({"removed": true, "task_id": task_id, "label_id": label_id});
+            let msg =
+                serde_json::json!({"removed": true, "task_id": task_id, "label_id": label_id});
             print_json(&CliOutput::new(msg))?;
         }
     }
     Ok(())
 }
 
-async fn run_task_assignee(cmd: TaskAssigneeCmd, client: &VikunjaClient, _out: &OutputFormat) -> Result<()> {
+async fn run_task_assignee(
+    cmd: TaskAssigneeCmd,
+    client: &VikunjaClient,
+    _out: &OutputFormat,
+) -> Result<()> {
     match cmd {
         TaskAssigneeCmd::Add { task_id, user_id } => {
             client.add_task_assignee(task_id, user_id).await?;
@@ -568,10 +580,7 @@ async fn run_project(cmd: ProjectCmd, client: &VikunjaClient, out: &OutputFormat
                 .await?;
             print_json(&CliOutput::new(project))?;
         }
-        ProjectCmd::List {
-            page,
-            per_page,
-        } => {
+        ProjectCmd::List { page, per_page } => {
             let page_data = client.list_projects(page, per_page).await?;
             let meta = PageMeta {
                 page: page_data.page,
@@ -581,7 +590,10 @@ async fn run_project(cmd: ProjectCmd, client: &VikunjaClient, out: &OutputFormat
             if matches!(out, OutputFormat::Json) {
                 print_json(&CliOutputMeta::new(page_data.result, meta))?;
             } else {
-                println!("Projects (page {}/{}):", page_data.page, page_data.total_pages);
+                println!(
+                    "Projects (page {}/{}):",
+                    page_data.page, page_data.total_pages
+                );
                 print_json_items(&page_data.result)?;
             }
         }
@@ -633,7 +645,9 @@ async fn run_label(cmd: LabelCmd, client: &VikunjaClient, out: &OutputFormat) ->
             page,
             per_page,
         } => {
-            let page_data = client.list_labels(search.as_deref(), page, per_page).await?;
+            let page_data = client
+                .list_labels(search.as_deref(), page, per_page)
+                .await?;
             let meta = PageMeta {
                 page: page_data.page,
                 total_pages: page_data.total_pages,
@@ -642,7 +656,10 @@ async fn run_label(cmd: LabelCmd, client: &VikunjaClient, out: &OutputFormat) ->
             if matches!(out, OutputFormat::Json) {
                 print_json(&CliOutputMeta::new(page_data.result, meta))?;
             } else {
-                println!("Labels (page {}/{}):", page_data.page, page_data.total_pages);
+                println!(
+                    "Labels (page {}/{}):",
+                    page_data.page, page_data.total_pages
+                );
                 print_json_items(&page_data.result)?;
             }
         }
@@ -765,4 +782,50 @@ async fn run_namespace(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accept_invalid_certs_absence_does_not_override_config() {
+        let cli = Cli::try_parse_from(["vkc", "--url", "https://example.invalid/api/v1", "health"])
+            .expect("CLI should parse");
+
+        assert_eq!(
+            accept_invalid_certs_arg(
+                cli.accept_invalid_certs,
+                ["vkc", "--url", "https://example.invalid/api/v1", "health"].map(OsString::from)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn accept_invalid_certs_flag_is_explicit_true() {
+        let cli = Cli::try_parse_from([
+            "vkc",
+            "--url",
+            "https://example.invalid/api/v1",
+            "--accept-invalid-certs",
+            "health",
+        ])
+        .expect("CLI should parse");
+
+        assert_eq!(
+            accept_invalid_certs_arg(
+                cli.accept_invalid_certs,
+                [
+                    "vkc",
+                    "--url",
+                    "https://example.invalid/api/v1",
+                    "--accept-invalid-certs",
+                    "health",
+                ]
+                .map(OsString::from)
+            ),
+            Some(true)
+        );
+    }
 }

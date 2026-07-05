@@ -1,10 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use reqwest::{
-    header::AUTHORIZATION,
-    Client, Response, StatusCode,
-};
+use reqwest::{Client, Response, StatusCode, header::AUTHORIZATION};
 
 use crate::types::*;
 
@@ -56,23 +53,6 @@ impl VikunjaClient {
         resp.json()
             .await
             .with_context(|| format!("decoding GET {path} response"))
-    }
-
-    async fn get_array<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<Vec<T>> {
-        let resp = self
-            .http
-            .get(format!("{}{path}", self.api))
-            .headers(self.headers())
-            .send()
-            .await
-            .with_context(|| format!("GET {path}"))?;
-        let resp = ensure_success(resp).await?;
-        let body = resp.text().await?;
-        if body == "null" || body.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-        serde_json::from_str(&body)
-            .with_context(|| format!("decoding GET {path} response (expected array)"))
     }
 
     async fn put_json<T: serde::de::DeserializeOwned, B: serde::Serialize>(
@@ -202,7 +182,8 @@ impl VikunjaClient {
     // -- tasks -------------------------------------------------------------
 
     pub async fn create_task(&self, project_id: i64, task: &CreateTask<'_>) -> Result<Task> {
-        self.put_json(&format!("/projects/{project_id}/tasks"), task).await
+        self.put_json(&format!("/projects/{project_id}/tasks"), task)
+            .await
     }
 
     pub async fn list_tasks(
@@ -298,18 +279,6 @@ impl VikunjaClient {
         self.delete(&format!("/projects/{id}")).await
     }
 
-    pub async fn add_project_team(&self, project_id: i64, team_id: i64) -> Result<()> {
-        let body = serde_json::json!({"team_id": team_id});
-        self.put_json::<serde_json::Value, _>(&format!("/projects/{project_id}/teams"), &body)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn get_project_teams(&self, project_id: i64) -> Result<Vec<ProjectTeam>> {
-        self.get_array(&format!("/projects/{project_id}/teams"))
-            .await
-    }
-
     // -- labels ------------------------------------------------------------
 
     pub async fn create_label(&self, title: &str, color: Option<&str>) -> Result<Label> {
@@ -393,7 +362,9 @@ impl VikunjaClient {
         _page: Option<i64>,
         _per_page: Option<i64>,
     ) -> Result<Paginated<Namespace>> {
-        anyhow::bail!("namespaces were removed in Vikunja 2.3 — work directly with projects instead")
+        anyhow::bail!(
+            "namespaces were removed in Vikunja 2.3 — work directly with projects instead"
+        )
     }
 }
 

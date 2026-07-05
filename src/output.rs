@@ -1,8 +1,9 @@
-use serde::Serialize;
-use tabled::settings::Style;
+use serde::{Deserialize, Serialize};
 use tabled::Tabled;
+use tabled::settings::Style;
 
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum OutputFormat {
     #[default]
     Json,
