@@ -8,6 +8,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     git-hooks.url = "github:cachix/git-hooks.nix";
+    rs-harbor.url = "git+https://codeberg.org/caniko/rs-harbor.git?ref=trunk";
   };
 
   outputs = {
@@ -18,6 +19,7 @@
     flake-utils,
     treefmt-nix,
     git-hooks,
+    rs-harbor,
     ...
   }:
     flake-utils.lib.eachDefaultSystem (system: let
@@ -30,6 +32,10 @@
         extensions = ["rustfmt" "clippy"];
       };
       craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+      cross = rs-harbor.lib.mkCross {
+        inherit pkgs system;
+        enableOsxcross = false;
+      };
       src = craneLib.cleanCargoSource ./.;
       commonArgs = {
         inherit src;
@@ -37,6 +43,16 @@
       };
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       package = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;});
+      crossPackageSet = rs-harbor.lib.mkCrossPackages ({
+        inherit pkgs craneLib cross commonArgs;
+        pname = "vikunja-client-cli";
+        targets = ["native" "aarch64-linux"];
+      } // pkgs.lib.optionalAttrs (builtins.hasAttr "toolchainArgs" (builtins.functionArgs rs-harbor.lib.mkCrossPackages)) {
+        toolchainArgs = {
+          channel = "stable";
+          extensions = ["rust-src" "rustfmt" "clippy"];
+        };
+      });
       treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix);
       pre-commit-check = git-hooks.lib.${system}.run {
         src = ./.;
@@ -47,7 +63,10 @@
         };
       };
     in {
-      packages.default = package;
+      packages = {
+        default = package;
+        "vikunja-client-cli-aarch64-linux" = crossPackageSet."vikunja-client-cli-aarch64-linux";
+      };
       formatter = treefmtEval.config.build.wrapper;
       checks = {
         default = package;
@@ -170,5 +189,8 @@
           };
         in "${script}/bin/local-release-deploy";
       };
-    });
+    })
+    // {
+      crossPackages."x86_64-linux"."aarch64-linux".vikunja-client-cli = self.packages."x86_64-linux"."vikunja-client-cli-aarch64-linux";
+    };
 }
