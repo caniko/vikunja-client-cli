@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use anyhow::{Context, Result};
 use reqwest::{Client, Response, StatusCode, header::AUTHORIZATION};
@@ -228,7 +228,11 @@ impl VikunjaClient {
     }
 
     pub async fn add_task_labels(&self, task_id: i64, label_ids: &[i64]) -> Result<()> {
-        for lid in label_ids {
+        if label_ids.is_empty() {
+            return Ok(());
+        }
+        let task = self.get_task(task_id).await?;
+        for lid in label_ids_to_add(&task.labels, label_ids) {
             let body = serde_json::json!({"label_id": lid});
             self.put_json::<serde_json::Value, _>(&format!("/tasks/{task_id}/labels"), &body)
                 .await?;
@@ -368,6 +372,15 @@ impl VikunjaClient {
     }
 }
 
+fn label_ids_to_add(existing: &[Label], requested: &[i64]) -> Vec<i64> {
+    let mut seen: HashSet<i64> = existing.iter().map(|label| label.id).collect();
+    requested
+        .iter()
+        .copied()
+        .filter(|label_id| seen.insert(*label_id))
+        .collect()
+}
+
 // -- HTTP response helpers ---------------------------------------------------
 
 async fn ensure_success(resp: Response) -> Result<Response> {
@@ -394,4 +407,23 @@ fn urlencode(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn label_ids_to_add_skips_existing_and_duplicate_labels() {
+        let existing = [Label {
+            id: 4,
+            title: "hermes-in-progress".into(),
+            hex_color: String::new(),
+            description: None,
+            created: String::new(),
+            updated: String::new(),
+        }];
+
+        assert_eq!(label_ids_to_add(&existing, &[4, 7, 7, 9]), vec![7, 9]);
+    }
 }
