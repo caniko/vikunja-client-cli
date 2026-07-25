@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: atlas
+    runs-on: atlas-nix-trusted
     container: rust:1.95-trixie
     steps:
       - name: Checkout
@@ -27,6 +27,16 @@ jobs:
         with:
           path: ~/.cargo/bin
           key: cargo-bin-${{ runner.os }}-${{ hashFiles('.forgejo/workflows/*.yaml') }}
+
+      - name: Verify compiler cache
+        run: |
+          set -eu
+          test -x /usr/local/bin/sccache
+          test -S /run/redis-sccache/redis.sock
+          /usr/local/bin/sccache --zero-stats
+
+      - name: Format check
+        run: cargo fmt --all -- --check
 
       - name: Check nextest tool
         run: command -v cargo-nextest >/dev/null 2>&1 || cargo install cargo-nextest --locked --version 0.9.100
@@ -47,4 +57,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- --deny warnings
 
       - name: Package crate
-        run: cargo package --allow-dirty
+        run: cargo package --allow-dirty --list
+      - name: Record compiler cache stats
+        if: always()
+        run: /usr/local/bin/sccache --show-adv-stats || true

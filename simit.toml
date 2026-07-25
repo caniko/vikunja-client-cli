@@ -3,3 +3,6 @@ runner = "atlas-nix-trusted"
 with_nextest = true
 with_msrv = true
 with_deny = true
+provider = "actions"
+platform = "forgejo"
+publish_crates = true
