@@ -24,15 +24,15 @@ fn normalize(token: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize;
+    use super::resolve_token;
 
     #[test]
     fn trims_inline_token() {
-        assert_eq!(normalize(" token\n").unwrap(), "token");
+        assert_eq!(resolve_token(None, Some("  token\n")).unwrap(), "token");
     }
 
     #[test]
     fn rejects_empty_token() {
-        assert!(normalize(" \n\t").is_err());
+        assert!(resolve_token(None, Some(" \n\t")).is_err());
     }
 }
