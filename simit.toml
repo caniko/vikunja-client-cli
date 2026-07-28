@@ -1,8 +1,9 @@
 [ci]
-runner = "atlas-nix-trusted"
+runner = "codefloe-global"
 with_nextest = true
 with_msrv = true
 with_deny = true
-provider = "actions"
+provider = "crow"
 platform = "forgejo"
 publish_crates = true
+runtime = "nix"
