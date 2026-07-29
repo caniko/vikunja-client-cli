@@ -1,17 +1,11 @@
 version = 2
 
 [[annotations]]
-path = [
-  "LICENSES/MIT.txt",
-  "LICENSES/Apache-2.0.txt",
-]
+path = ["LICENSES/MIT.txt", "LICENSES/Apache-2.0.txt"]
 SPDX-ID = "MIT AND Apache-2.0"
 
 [[annotations]]
-path = [
-  "Cargo.toml",
-  ".gitignore",
-]
+path = ["Cargo.toml", ".gitignore"]
 SPDX-ID = "MIT OR Apache-2.0"
 
 [[annotations]]
