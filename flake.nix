@@ -44,15 +44,16 @@
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       package = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;});
       crossPackageSet = rs-harbor.lib.mkCrossPackages ({
-        inherit pkgs craneLib cross commonArgs;
-        pname = "vikunja-client-cli";
-        targets = ["native" "aarch64-linux"];
-      } // pkgs.lib.optionalAttrs (builtins.hasAttr "toolchainArgs" (builtins.functionArgs rs-harbor.lib.mkCrossPackages)) {
-        toolchainArgs = {
-          channel = "stable";
-          extensions = ["rust-src" "rustfmt" "clippy"];
-        };
-      });
+          inherit pkgs craneLib cross commonArgs;
+          pname = "vikunja-client-cli";
+          targets = ["native" "aarch64-linux"];
+        }
+        // pkgs.lib.optionalAttrs (builtins.hasAttr "toolchainArgs" (builtins.functionArgs rs-harbor.lib.mkCrossPackages)) {
+          toolchainArgs = {
+            channel = "stable";
+            extensions = ["rust-src" "rustfmt" "clippy"];
+          };
+        });
       treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix);
       pre-commit-check = git-hooks.lib.${system}.run {
         src = ./.;
@@ -80,26 +81,28 @@
       };
       devShells.default = craneLib.devShell {
         checks = self.checks.${system};
-        packages = with pkgs; [
-          cargo-about
-          cargo-audit
-          cargo-cyclonedx
-          cargo-deny
-          cargo-llvm-cov
-          cargo-sbom
-          cargo-nextest
-          cosign
-          jq
-          minisign
-          nodejs
-          pre-commit
-          rpm
-          debootstrap
-          util-linux
-          reprepro
-          rust-analyzer
-          taplo
-        ] ++ pre-commit-check.enabledPackages;
+        packages = with pkgs;
+          [
+            cargo-about
+            cargo-audit
+            cargo-cyclonedx
+            cargo-deny
+            cargo-llvm-cov
+            cargo-sbom
+            cargo-nextest
+            cosign
+            jq
+            minisign
+            nodejs
+            pre-commit
+            rpm
+            debootstrap
+            util-linux
+            reprepro
+            rust-analyzer
+            taplo
+          ]
+          ++ pre-commit-check.enabledPackages;
         shellHook = pre-commit-check.shellHook;
       };
       apps.local-check-fast = {
