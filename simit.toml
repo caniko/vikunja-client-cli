@@ -1,9 +1,10 @@
 [ci]
-runner = "codefloe-global"
+runner = "ubuntu-24.04"
 with_nextest = true
 with_msrv = true
 with_deny = true
-provider = "crow"
-platform = "forgejo"
+provider = "actions"
+platform = "github"
 publish_crates = true
 runtime = "nix"
+workspace = true
