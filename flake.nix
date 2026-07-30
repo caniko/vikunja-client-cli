@@ -8,7 +8,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     git-hooks.url = "github:cachix/git-hooks.nix";
-    rs-harbor.url = "git+https://codeberg.org/caniko/rs-harbor.git?ref=trunk&rev=9bfa8bdb0ecb22d7bc11448665f7fbaebae7a759";
+    rs-harbor.url = "git+https://codeberg.org/caniko/rs-harbor.git?ref=trunk&rev=c26b735eede8078f795651c4a9cbf0be8733b221";
   };
 
   outputs = {
@@ -28,9 +28,7 @@
         overlays = [(import rust-overlay)];
       };
 
-      rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-        extensions = ["rustfmt" "clippy"];
-      };
+      rustToolchain = rs-harbor.lib.mkToolchain { toolchainProfile = "stable"; };
       craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
       cross = rs-harbor.lib.mkCross {
         inherit pkgs system;
@@ -43,16 +41,11 @@
       };
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       package = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;});
-      crossPackageSet = rs-harbor.lib.mkCrossPackages ({
+      crossPackageSet = rs-harbor.lib.mkCrossPackages {
         inherit pkgs craneLib cross commonArgs;
         pname = "vikunja-client-cli";
         targets = ["native" "aarch64-linux"];
-      } // pkgs.lib.optionalAttrs (builtins.hasAttr "toolchainArgs" (builtins.functionArgs rs-harbor.lib.mkCrossPackages)) {
-        toolchainArgs = {
-          channel = "stable";
-          extensions = ["rust-src" "rustfmt" "clippy"];
-        };
-      });
+      };
       treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix);
       pre-commit-check = git-hooks.lib.${system}.run {
         src = ./.;
