@@ -28,8 +28,8 @@
         overlays = [(import rust-overlay)];
       };
 
-      rustToolchain = rs-harbor.lib.mkToolchain { toolchainProfile = "stable"; };
-      craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+      toolchain = rs-harbor.lib.mkToolchain { inherit pkgs; toolchainProfile = "stable"; };
+      craneLib = toolchain.craneLib;
       cross = rs-harbor.lib.mkCross {
         inherit pkgs system;
         enableOsxcross = false;
@@ -52,7 +52,7 @@
         hooks = import ./nix/pre-commit.nix {
           inherit pkgs;
           treefmtWrapper = treefmtEval.config.build.wrapper;
-          inherit rustToolchain;
+          rustToolchain = toolchain.rustToolchain;
         };
       };
     in {
