@@ -8,7 +8,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     git-hooks.url = "github:cachix/git-hooks.nix";
-    rs-harbor.url = "git+https://codeberg.org/caniko/rs-harbor.git?ref=trunk&rev=c26b735eede8078f795651c4a9cbf0be8733b221";
+    rs-harbor.url = "github:caniko/rs-harbor/0c84aec036b911883c2549b8f82a773c849b6b9e";
   };
 
   outputs = {
@@ -29,6 +29,7 @@
       };
 
       toolchain = rs-harbor.lib.mkToolchain { inherit pkgs; toolchainProfile = "stable"; };
+      rustToolchain = toolchain.rustToolchain;
       craneLib = toolchain.craneLib;
       cross = rs-harbor.lib.mkCross {
         inherit pkgs system;
@@ -41,6 +42,12 @@
       };
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       package = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;});
+      atticAdapter = rs-harbor.lib.mkAdapter {
+        attic = {
+          endpoint = "https://attic.candee.baby";
+          cache = "canix";
+        };
+      };
       crossPackageSet = rs-harbor.lib.mkCrossPackages {
         inherit pkgs craneLib cross commonArgs;
         pname = "vikunja-client-cli";
@@ -115,6 +122,11 @@
             '';
           };
         in "${script}/bin/local-check-fast";
+      };
+      apps.push-flake-inputs = rs-harbor.lib.mkAtticPush {
+        inherit pkgs;
+        adapter = atticAdapter;
+        flake = ".";
       };
       apps.local-check-release = {
         type = "app";
