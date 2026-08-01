@@ -8,7 +8,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     git-hooks.url = "github:cachix/git-hooks.nix";
-    rs-harbor.url = "github:caniko/rs-harbor/0c84aec036b911883c2549b8f82a773c849b6b9e";
+    rs-harbor.url = "github:caniko/rs-harbor/e2778ff3beca1bd4c1f5183313251d1fb5b46dd6";
   };
 
   outputs = {
