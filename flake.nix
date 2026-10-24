@@ -183,6 +183,21 @@
           };
         in "${script}/bin/local-release-deploy";
       };
+      # Simit prebuild publication on trunk (secret ATTIC_TOKEN). The prebuild
+      # runs this only on x86_64-linux: the package canix consumes, pushed to
+      # the public canix cache.
+      apps.push-flake-inputs = rs-harbor.lib.mkAtticPush {
+        inherit pkgs;
+        flake = ".";
+        paths = [package];
+        adapter = rs-harbor.lib.mkAdapter {
+          attic = {
+            endpoint = "https://attic.candee.baby";
+            cache = "canix";
+            tokenEnvVar = "ATTIC_TOKEN";
+          };
+        };
+      };
     })
     // {
       crossPackages."x86_64-linux"."aarch64-linux".vikunja-client-cli = self.packages."x86_64-linux"."vikunja-client-cli-aarch64-linux";
