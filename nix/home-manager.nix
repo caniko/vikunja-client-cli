@@ -22,10 +22,12 @@ in {
       description = "Vikunja API base URL.";
     };
     tokenFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
+      # vkc reads the path literally, so $XDG_RUNTIME_DIR-style placeholders
+      # (e.g. Home Manager agenix defaults) must be resolved by the caller.
+      type = lib.types.nullOr (lib.types.strMatching "/[^$]*");
       default = null;
       example = "/run/agenix/vikunja-token";
-      description = "Runtime path of a file containing the API token; read on every invocation.";
+      description = "Absolute runtime path of a file containing the API token; read on every invocation, never expanded.";
     };
     output = lib.mkOption {
       type = lib.types.enum ["json" "table"];
