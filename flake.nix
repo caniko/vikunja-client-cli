@@ -71,6 +71,41 @@
             cargoClippyExtraArgs = "--all-targets --all-features -- --deny warnings";
           });
         fmt = craneLib.cargoFmt {inherit src;};
+        # The generated config must parse (FileConfig denies unknown keys) and
+        # its token_file must be read: only the network call may fail.
+        home-manager-module = let
+          stubOption = pkgs.lib.mkOption {type = pkgs.lib.types.attrsOf pkgs.lib.types.anything;};
+          inherit
+            (pkgs.lib.evalModules {
+              modules = [
+                self.homeManagerModules.default
+                {
+                  options.home.packages = pkgs.lib.mkOption {type = pkgs.lib.types.listOf pkgs.lib.types.package;};
+                  options.xdg.configFile = stubOption;
+                  config = {
+                    _module.args.pkgs = pkgs;
+                    programs.vkc = {
+                      enable = true;
+                      url = "http://127.0.0.1:9/api/v1";
+                      tokenFile = "/build/token";
+                    };
+                  };
+                }
+              ];
+            })
+            config
+            ;
+        in
+          pkgs.runCommand "vkc-home-manager-module" {} ''
+            echo secret > /build/token
+            if ${pkgs.lib.getExe' package "vkc"} --config ${config.xdg.configFile."vkc/config.toml".source} whoami > out 2>&1; then
+              exit 1
+            fi
+            cat out
+            grep -q 127.0.0.1 out
+            ! grep -q -E 'config|token' out
+            touch $out
+          '';
       };
       devShells.default = craneLib.devShell {
         checks = self.checks.${system};
@@ -200,6 +235,7 @@
       };
     })
     // {
+      homeManagerModules.default = import ./nix/home-manager.nix self;
       crossPackages."x86_64-linux"."aarch64-linux".vikunja-client-cli = self.packages."x86_64-linux"."vikunja-client-cli-aarch64-linux";
     };
 }
