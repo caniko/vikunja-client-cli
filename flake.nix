@@ -75,6 +75,12 @@
           });
         fmt = craneLib.cargoFmt {inherit src;};
       };
+      devShells.msrv = (rs-harbor.lib.mkToolchain {
+        inherit pkgs;
+        toolchainFile = ./rust-toolchain-msrv.toml;
+        withRustAnalyzer = false;
+        crossTargets = [];
+      }).craneLib.devShell {};
       devShells.default = craneLib.devShell {
         checks = self.checks.${system};
         packages = with pkgs;
