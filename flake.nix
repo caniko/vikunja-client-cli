@@ -28,7 +28,10 @@
         overlays = [(import rust-overlay)];
       };
 
-      toolchain = rs-harbor.lib.mkToolchain { inherit pkgs; toolchainProfile = "stable"; };
+      toolchain = rs-harbor.lib.mkToolchain {
+        inherit pkgs;
+        toolchainProfile = "stable";
+      };
       rustToolchain = toolchain.rustToolchain;
       craneLib = toolchain.craneLib;
       cross = rs-harbor.lib.mkCross {
@@ -72,28 +75,36 @@
           });
         fmt = craneLib.cargoFmt {inherit src;};
       };
+      devShells.msrv = (rs-harbor.lib.mkToolchain {
+        inherit pkgs;
+        toolchainFile = ./rust-toolchain-msrv.toml;
+        withRustAnalyzer = false;
+        crossTargets = [];
+      }).craneLib.devShell {};
       devShells.default = craneLib.devShell {
         checks = self.checks.${system};
-        packages = with pkgs; [
-          cargo-about
-          cargo-audit
-          cargo-cyclonedx
-          cargo-deny
-          cargo-llvm-cov
-          cargo-sbom
-          cargo-nextest
-          cosign
-          jq
-          minisign
-          nodejs
-          pre-commit
-          rpm
-          debootstrap
-          util-linux
-          reprepro
-          rust-analyzer
-          taplo
-        ] ++ pre-commit-check.enabledPackages;
+        packages = with pkgs;
+          [
+            cargo-about
+            cargo-audit
+            cargo-cyclonedx
+            cargo-deny
+            cargo-llvm-cov
+            cargo-sbom
+            cargo-nextest
+            cosign
+            jq
+            minisign
+            nodejs
+            pre-commit
+            rpm
+            debootstrap
+            util-linux
+            reprepro
+            rust-analyzer
+            taplo
+          ]
+          ++ pre-commit-check.enabledPackages;
         shellHook = pre-commit-check.shellHook;
       };
       apps.local-check-fast = {
